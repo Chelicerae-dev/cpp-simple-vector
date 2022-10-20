@@ -32,7 +32,7 @@ class SimpleVector {
 public:
     using Iterator = Type*;
     using ConstIterator = const Type*;
-    using Ptr = ArrayPtr<Type>;
+    using Items = ArrayPtr<Type>;
 
     SimpleVector() noexcept {
         size_ = 0;
@@ -41,25 +41,23 @@ public:
 
     // Создаёт вектор из size элементов, инициализированных значением по умолчанию
     explicit SimpleVector(size_t size) {
-        size_ = capacity_ = size;
-        items_ = Ptr(size);
-        //std::fill(begin(), end(), 0);
+        *this = std::move(SimpleVector(size, Type{}));
     }
 
     // Создаёт вектор из size элементов, инициализированных значением value
     SimpleVector(size_t size, const Type& value) {
-        size_ = capacity_ = size;
-        items_ = Ptr(size);
+        size_ = size;
+        capacity_ = size;
+        items_ = Items(size);
         std::fill(begin(), end(), value);
     }
 
     // Создаёт вектор из std::initializer_list
     SimpleVector(std::initializer_list<Type> init) {
-        size_ = capacity_ = init.size();
-        items_ = Ptr(size_);
-        for(size_t i = 0; i < size_; ++i) {
-            items_[i] = std::data(init)[i];
-        }
+        size_ = init.size();
+        capacity_ = init.size();
+        items_ = Items(size_);
+        std::copy(init.begin(), init.end(), begin());
     }
 
     // Создаёт вектор с резервированной вместительностью
@@ -72,35 +70,32 @@ public:
     SimpleVector(const SimpleVector& other) {
         size_ = other.size_;
         capacity_ = other.capacity_;
-        items_ = Ptr(capacity_);
+        items_ = Items(capacity_);
         std::copy(other.begin(), other.end(), begin());
     }
     //Копирующее присваивание
     SimpleVector& operator=(const SimpleVector& rhs) {
-        size_ = rhs.size_;
-        capacity_ = rhs.capacity_;
-        items_ = Ptr(capacity_);
-        std::copy(std::make_move_iterator(rhs.begin()), std::make_move_iterator(rhs.end()), begin());
+        if(*this != rhs) {
+            SimpleVector temp = SimpleVector(rhs);
+            swap(temp);
+        }
         return *this;
     }
 
     //Перемещающий конструктор
     SimpleVector(SimpleVector&& other) {
-        size_ = std::move(other.size_);
-        capacity_ = std::move(other.capacity_);
-        items_ = Ptr(std::move(other.items_));
+        std::exchange(size_, other.size_);
+        std::exchange(capacity_, other.capacity_);
+        //Обнуляем вручную (т.к. exchange меняет только объект)
         other.size_ = 0;
         other.capacity_ = 0;
+        items_ = Items(std::move(other.items_));
         other.items_.Nullify();
     }
     //Перемещающее присваивание
     SimpleVector& operator=(SimpleVector&& rhs) {
-        size_ = std::move(rhs.size_);
-        capacity_ = std::move(rhs.capacity_);
-        items_ = Ptr(std::move(rhs.items_));
-        rhs.size_ = 0;
-        rhs.capacity_ = 0;
-        rhs.items_.Nullify();
+        SimpleVector temp = SimpleVector(rhs);
+        swap(temp);
         return *this;
     }
 
@@ -120,16 +115,20 @@ public:
 
     // Сообщает, пустой ли массив
     bool IsEmpty() const noexcept {
-        return size_ == 0 ? true : false;
+        //В одном из предыдущих ревью мне сказали явно преобразовывать значение в bool (для аналогичного решения там было return size_;),
+        //вспомнил это и с перепугу приписал ещё одно преобразование
+        return size_ == 0;
     }
 
     // Возвращает ссылку на элемент с индексом index
     Type& operator[](size_t index) noexcept {
+        assert(size_ <= capacity_);
         return items_[index];
     }
 
     // Возвращает константную ссылку на элемент с индексом index
     const Type& operator[](size_t index) const noexcept {
+        assert(size_ <= capacity_);
         return items_[index];
     }
 
@@ -165,11 +164,11 @@ public:
             size_ = new_size;
         } else {
             capacity_ = std::max(capacity_*2, new_size);
-            Ptr temp = Ptr(capacity_);
+            Items temp = Items(capacity_);
             std::move(begin(), end(), temp.Get());
             size_ = new_size;
             items_.Release();
-            items_ = temp;
+            items_ = std::move(temp);
         }
     }
 
@@ -182,7 +181,8 @@ public:
     // Возвращает итератор на элемент, следующий за последним
     // Для пустого массива может быть равен (или не равен) nullptr
     Iterator end() noexcept {
-        return &items_[size_];
+        //По неведомой причине я посчитал что &items_[size_] будет более наглядно.
+        return items_.Get() + size_;
     }
 
     // Возвращает константный итератор на начало массива
@@ -194,7 +194,7 @@ public:
     // Возвращает итератор на элемент, следующий за последним
     // Для пустого массива может быть равен (или не равен) nullptr
     ConstIterator end() const noexcept {
-        return &items_[size_];
+        return items_.Get() + size_;
     }
 
     // Возвращает константный итератор на начало массива
@@ -206,37 +206,38 @@ public:
     // Возвращает итератор на элемент, следующий за последним
     // Для пустого массива может быть равен (или не равен) nullptr
     ConstIterator cend() const noexcept {
-        return &items_[size_];
+        return items_.Get() + size_;
     }
 
     // Добавляет элемент в конец вектора
     // При нехватке места увеличивает вдвое вместимость вектора
     void PushBack(const Type& item) {
         if(size_ == capacity_) {
-            Resize(size_+1);
+            //С замечанием согласен, обычно придерживаюсь указанного Вами подхода, в этот раз ночные правки сделали своё злое дело
+            Resize(size_ + 1);
         } else if(size_ == 0) {
             ++size_;
-            items_ = Ptr(1);
+            items_ = Items(1);
         } else {
             ++size_;
         }
 
-        items_[size_-1] = item;
+        items_[size_ - 1] = item;
     }
 
     // Добавляет элемент в конец вектора, move-версия
     // При нехватке места увеличивает вдвое вместимость вектора
     void PushBack(Type&& item) {
         if(size_ == capacity_) {
-            Resize(size_+1);
+            Resize(size_ + 1);
         } else if(size_ == 0) {
             ++size_;
-            items_ = Ptr(1);
+            items_ = Items(1);
         } else {
             ++size_;
         }
 
-        items_[size_-1] = std::move(item);
+        items_[size_ - 1] = std::move(item);
     }
 
     // Вставляет значение value в позицию pos.
@@ -244,53 +245,62 @@ public:
     // Если перед вставкой значения вектор был заполнен полностью,
     // вместимость вектора должна увеличиться вдвое, а для вектора вместимостью 0 стать равной 1
     Iterator Insert(ConstIterator pos, const Type& value) {
+        assert(pos != nullptr);
         auto dist = std::distance(begin(), const_cast<Iterator>(pos));
         if(capacity_ == 0) {
             Resize(1);
             items_[0] = value;
             return begin();
         } else if(size_ == capacity_) {
-            Resize(size_+1);
+            Resize(size_ + 1);
         } else {
             ++size_;
         }
         std::copy_backward(begin() + dist, end() - 1, end());
-        *(begin() + dist) = move(value);
+        //Намного резоннее использовать items_, действительно
+        items_[dist] = move(value);
         return begin() + dist;
     }
 
     Iterator Insert(Iterator pos, Type&& value) {
+        assert(pos != nullptr);
         auto dist = std::distance(std::make_move_iterator(begin()), std::make_move_iterator(pos));
         if(capacity_ == 0) {
             Resize(1);
             items_[0] = std::move(value);
             return begin();
         } else if(size_ == capacity_) {
-            Resize(size_+1);
+            Resize(size_ + 1);
         } else {
             ++size_;
         }
         std::move_backward(begin() + dist, end() - 1,
                            end());
-        *(begin() + dist) = std::move(value);
+        items_[dist] = std::move(value);
         return begin() + dist;
     }
 
     // "Удаляет" последний элемент вектора. Вектор не должен быть пустым
     void PopBack() noexcept {
+        //В задании указывалось что сюда не будут передавать инвалидные значения, поэтому проверку не делал изначально
+        assert(size_ != 0);
         --size_;
     }
 
     // Удаляет элемент вектора в указанной позиции
     Iterator Erase(ConstIterator pos) {
+        assert(size_ != 0);
+        assert(pos != nullptr);
         Iterator res = const_cast<Iterator>(pos);
-        std::copy(res+1, end(), res);
+        std::copy(res + 1, end(), res);
         --size_;
         return res;
     }
 
     Iterator Erase(Iterator pos) {
-        std::copy(std::make_move_iterator(pos+1), std::make_move_iterator(end()), pos);
+        assert(size_ != 0);
+        assert(pos != nullptr);
+        std::copy(std::make_move_iterator(pos + 1), std::make_move_iterator(end()), pos);
         --size_;
         return pos;
     }
@@ -304,7 +314,7 @@ public:
 
     void Reserve(size_t new_capacity) {
         if(new_capacity > capacity_) {
-            Ptr temp = Ptr(capacity_);
+            Items temp = Items(capacity_);
             std::copy(begin(), end(), temp.Get());
             items_.Release();
             items_ = temp;

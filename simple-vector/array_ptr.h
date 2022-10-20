@@ -26,17 +26,10 @@ public:
         raw_ptr_ = raw_ptr;
     }
 
-
-
     //Копирующий конструктор
-    ArrayPtr(const ArrayPtr& other) {
-        raw_ptr_ = new Type*(other.raw_ptr_);
-    }
+    ArrayPtr(const ArrayPtr& other) = delete;
     //Копирующее присваивание
-    ArrayPtr& operator=(const ArrayPtr& rhs) {
-        raw_ptr_ = rhs.raw_ptr_;
-        return *this;
-    }
+    ArrayPtr& operator=(const ArrayPtr& rhs) = delete;
 
     //Перемещающий конструктор
     ArrayPtr(ArrayPtr&& other) {
