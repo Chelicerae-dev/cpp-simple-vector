@@ -40,9 +40,7 @@ public:
     }
 
     // Создаёт вектор из size элементов, инициализированных значением по умолчанию
-    explicit SimpleVector(size_t size) {
-        *this = std::move(SimpleVector(size, Type{}));
-    }
+    explicit SimpleVector(size_t size) : SimpleVector(size, Type{}) {}
 
     // Создаёт вектор из size элементов, инициализированных значением value
     SimpleVector(size_t size, const Type& value) {
@@ -75,7 +73,7 @@ public:
     }
     //Копирующее присваивание
     SimpleVector& operator=(const SimpleVector& rhs) {
-        if(*this != rhs) {
+        if(this != &rhs) {
             SimpleVector temp = SimpleVector(rhs);
             swap(temp);
         }
@@ -84,11 +82,8 @@ public:
 
     //Перемещающий конструктор
     SimpleVector(SimpleVector&& other) {
-        std::exchange(size_, other.size_);
-        std::exchange(capacity_, other.capacity_);
-        //Обнуляем вручную (т.к. exchange меняет только объект)
-        other.size_ = 0;
-        other.capacity_ = 0;
+        size_ = std::exchange(other.size_, 0);
+        capacity_ = std::exchange(other.capacity_, 0);
         items_ = Items(std::move(other.items_));
         other.items_.Nullify();
     }
@@ -122,13 +117,13 @@ public:
 
     // Возвращает ссылку на элемент с индексом index
     Type& operator[](size_t index) noexcept {
-        assert(size_ <= capacity_);
+        assert(index <= capacity_);
         return items_[index];
     }
 
     // Возвращает константную ссылку на элемент с индексом index
     const Type& operator[](size_t index) const noexcept {
-        assert(size_ <= capacity_);
+        assert(index <= capacity_);
         return items_[index];
     }
 
@@ -245,7 +240,7 @@ public:
     // Если перед вставкой значения вектор был заполнен полностью,
     // вместимость вектора должна увеличиться вдвое, а для вектора вместимостью 0 стать равной 1
     Iterator Insert(ConstIterator pos, const Type& value) {
-        assert(pos != nullptr);
+        assert(pos >= begin() && pos <= end());
         auto dist = std::distance(begin(), const_cast<Iterator>(pos));
         if(capacity_ == 0) {
             Resize(1);
@@ -263,7 +258,7 @@ public:
     }
 
     Iterator Insert(Iterator pos, Type&& value) {
-        assert(pos != nullptr);
+        assert(pos >= begin() && pos <= end());
         auto dist = std::distance(std::make_move_iterator(begin()), std::make_move_iterator(pos));
         if(capacity_ == 0) {
             Resize(1);
@@ -289,8 +284,8 @@ public:
 
     // Удаляет элемент вектора в указанной позиции
     Iterator Erase(ConstIterator pos) {
-        assert(size_ != 0);
-        assert(pos != nullptr);
+        assert(!IsEmpty());
+        assert(pos >= begin() && pos <= end());
         Iterator res = const_cast<Iterator>(pos);
         std::copy(res + 1, end(), res);
         --size_;
@@ -298,8 +293,8 @@ public:
     }
 
     Iterator Erase(Iterator pos) {
-        assert(size_ != 0);
-        assert(pos != nullptr);
+        assert(!IsEmpty());
+        assert(pos >= begin() && pos <= end());
         std::copy(std::make_move_iterator(pos + 1), std::make_move_iterator(end()), pos);
         --size_;
         return pos;
